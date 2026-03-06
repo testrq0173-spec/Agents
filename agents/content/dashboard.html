@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenClaw Content Department | Live Monitor</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono&display=swap"
+        rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f1f5f9;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .glass {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .pulsate {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: .5;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        function App() {
+            const [agents, setAgents] = useState({});
+            const [events, setEvents] = useState([]);
+            const [connected, setConnected] = useState(false);
+            const socketRef = useRef(null);
+
+            useEffect(() => {
+                const socket = io("http://localhost:8000");
+                socketRef.current = socket;
+
+                socket.on("connect", () => setConnected(true));
+                socket.on("disconnect", () => setConnected(false));
+
+                socket.on("agent_heartbeat", (data) => {
+                    setAgents(prev => ({
+                        ...prev,
+                        [data.agent_id]: {
+                            ...data,
+                            lastSeen: new Date().toLocaleTimeString()
+                        }
+                    }));
+                });
+
+                socket.on("department_event", (data) => {
+                    setEvents(prev => [
+                        { ...data, id: Date.now(), time: new Date().toLocaleTimeString() },
+                        ...prev.slice(0, 49) // Keep last 50
+                    ]);
+                });
+
+                return () => socket.disconnect();
+            }, []);
+
+            return (
+                <div className="min-h-screen p-8">
+                    {/* Header */}
+                    <header className="flex justify-between items-center mb-12">
+                        <div>
+                            <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+                                OPENCLAW DEPARTMENT
+                            </h1>
+                            <p className="text-slate-400">Content Strategy & Production Department</p>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold ${connected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400 pulsate' : 'bg-red-400'}`}></div>
+                                {connected ? 'SYSTEM ONLINE' : 'SYSTEM OFFLINE'}
+                            </div>
+                        </div>
+                    </header>
+
+                    <div className="grid grid-cols-12 gap-8">
+                        {/* Agent Section */}
+                        <div className="col-span-12 lg:col-span-4 space-y-6">
+                            <h2 className="text-xl font-semibold flex items-center gap-2">
+                                <span className="text-cyan-400">●</span> ACTIVE AGENTS
+                            </h2>
+                            <div className="space-y-4">
+                                {Object.values(agents).length === 0 && (
+                                    <div className="glass p-6 rounded-xl text-slate-500 text-center italic">
+                                        Waiting for agents to report duty...
+                                    </div>
+                                )}
+                                {Object.values(agents).map(agent => (
+                                    <div key={agent.agent_id} className="glass p-5 rounded-xl border-l-4 border-cyan-500">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <h3 className="font-bold text-lg">{agent.agent_name}</h3>
+                                            <span className="text-[10px] mono text-slate-500">{agent.agent_id}</span>
+                                        </div>
+                                        <div className="flex items-center gap-4 text-sm mb-4">
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${agent.status === 'running' ? 'bg-cyan-500 text-white' : 'bg-slate-700 text-slate-300'}`}>
+                                                {agent.status.toUpperCase()}
+                                            </span>
+                                            <span className="text-slate-400">Cycle: {agent.cycle_count}</span>
+                                        </div>
+                                        <div className="text-[10px] text-slate-500 flex justify-between">
+                                            <span>LAST PULSE</span>
+                                            <span>{agent.lastSeen}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Activity Feed */}
+                        <div className="col-span-12 lg:col-span-8 space-y-6">
+                            <h2 className="text-xl font-semibold flex items-center gap-2">
+                                <span className="text-amber-400">●</span> DEPARTMENT ACTIVITY
+                            </h2>
+                            <div className="glass rounded-2xl overflow-hidden h-[600px] flex flex-col">
+                                <div className="p-4 bg-slate-800/50 border-b border-white/5 flex justify-between text-xs font-semibold text-slate-400">
+                                    <span>TIMESTAMP</span>
+                                    <span>EVENT DESCRIPTION</span>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-4 space-y-3 mono">
+                                    {events.length === 0 && (
+                                        <div className="flex items-center justify-center h-full text-slate-600 italic">
+                                            No activity recorded yet today
+                                        </div>
+                                    )}
+                                    {events.map(ev => (
+                                        <div key={ev.id} className="p-3 bg-white/5 rounded-lg border border-white/5 flex gap-4 text-sm animate-in fade-in slide-in-from-left-2 duration-500">
+                                            <span className="text-slate-500 w-24 shrink-0">{ev.time}</span>
+                                            <div className="space-y-2 flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-amber-400 font-bold">[{ev.type.toUpperCase()}]</span>
+                                                    <span className="text-slate-300">—</span>
+                                                    <span className="text-cyan-400 font-semibold">{ev.agent}</span>
+                                                </div>
+                                                <div className="text-slate-400 bg-black/30 p-2 rounded text-xs">
+                                                    {ev.type === 'content_briefs_ready' && (
+                                                        <div className="space-y-1">
+                                                            <div className="text-slate-200">✨ NEW BRIEF: <span className="text-white font-bold">{ev.payload.title}</span></div>
+                                                            <div>PRIORITY: {ev.payload.priority} | KEYWORD: {ev.payload.focus_keyword}</div>
+                                                        </div>
+                                                    )}
+                                                    {ev.type === 'post_published' && (
+                                                        <div className="space-y-1">
+                                                            <div className="text-slate-200">📝 POST PUBLISHED</div>
+                                                            <div className="text-blue-400 underline underline-offset-2 break-all">{ev.payload.cms_post_url}</div>
+                                                            <div className="text-green-400 font-bold">SEO SCORE: {ev.payload.overall_seo_score}%</div>
+                                                        </div>
+                                                    )}
+                                                    {!['content_briefs_ready', 'post_published'].includes(ev.type) && JSON.stringify(ev.payload, null, 2)}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+
+</html>
