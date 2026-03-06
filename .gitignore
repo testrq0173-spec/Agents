@@ -418,7 +418,11 @@ __marimo__/
 **/*.pyc
 
 # Virtual environments
-**/venv/
-**/.venv/
+# **/venv/
+**/venv/Scripts
+**/venv/Lib
+# **/.venv/
+**/.venv/Scripts
+**/.venv/Lib
 **/env/
 **/ENV/
