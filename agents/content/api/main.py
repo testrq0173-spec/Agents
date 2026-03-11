@@ -37,6 +37,11 @@ async def serve_dashboard():
         return {"error": "Dashboard file not found"}
     return FileResponse(dashboard_path)
 
+# Add StaticFiles mount for generated previews
+previews_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "previews"))
+os.makedirs(previews_path, exist_ok=True)
+app.mount("/previews", StaticFiles(directory=previews_path), name="previews")
+
 # Add CORS for the Frontend
 app.add_middleware(
     CORSMiddleware,

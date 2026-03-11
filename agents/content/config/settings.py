@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str            = "text-embedding-3-small"
     DALLE_MODEL: str                = "dall-e-3"
 
+    # Unsplash — free alternative for thumbnails
+    UNSPLASH_ACCESS_KEY: str        = ""
+
+    # Freepik — AI image generation
+    FREEPIK_API_KEY: str           = ""
+
     # ── Cloudinary ────────────────────────────────────────────────────────
     CLOUDINARY_CLOUD_NAME: str      = ""
     CLOUDINARY_API_KEY: str         = ""

@@ -27,6 +27,9 @@ from .tools.seo_formatter import format_and_validate
 from .tools.internal_linker import inject_internal_links
 from .tools.image_handler import generate_and_upload_image
 from .tools.cms_publisher import publish_to_cms
+from ..db.session import async_session
+from ..db.models.content_models import ContentBriefModel, PostModel
+from sqlalchemy import update
 
 logger = logging.getLogger("openclaw.agents.blog_writer")
 
@@ -68,11 +71,25 @@ class BlogWriterAgent(BaseAgent):
         """Process a single 'content_briefs_ready' event envelope."""
         payload = envelope.get("payload", {})
         brief_id: str = payload.get("brief_id", "unknown")
-        logger.info("Received brief event for brief_id=%s", brief_id)
+        self._log.info(f"Received brief event for brief_id={brief_id}")
 
-        # TODO: Load full ContentBrief from PostgreSQL by brief_id
-        # brief = await load_brief_from_db(brief_id)
-        # await self._process_brief(brief)
+        # For smoke tests/development: Allow passing the full brief in the payload
+        # to avoid needing a real PostgreSQL connection.
+        if "full_brief" in payload:
+            self._log.info("Using full_brief from payload (Smoke Test mode)")
+            brief_dict = payload["full_brief"]
+            brief = ContentBrief(**brief_dict)
+        else:
+            # Load full ContentBrief from PostgreSQL by brief_id
+            brief = await self._load_brief_from_db(brief_id)
+            if not brief:
+                self._log.warning(f"Brief {brief_id} not found in DB and no full_brief provided.")
+                return
+
+        try:
+            await self._process_brief(brief)
+        except Exception as e:
+            self._log.error(f"Failed to process brief {brief_id}: {e}")
 
     async def _process_brief(self, brief: ContentBrief) -> SEOFormatterResult:
         """Full write → format → publish pipeline for one ContentBrief."""
@@ -123,7 +140,22 @@ class BlogWriterAgent(BaseAgent):
             seo_result.cms_post_id  = cms_post_id
             seo_result.cms_post_url = cms_url
 
-        # Step 7: Emit event
+        # Step 7: Persist to PostgreSQL
+        async with async_session() as session:
+            # 7a. Save the Post record
+            session.add(PostModel.from_schema(seo_result))
+            
+            # 7b. Update the Brief status to PUBLISHED
+            stmt = (
+                update(ContentBriefModel)
+                .where(ContentBriefModel.id == brief.id)
+                .values(status="published")
+            )
+            await session.execute(stmt)
+            await session.commit()
+            logger.info("Post and status persisted to PostgreSQL for: %s", brief.title)
+
+        # Step 8: Emit event
         await self.emit("post_published", seo_result.redis_payload())
         logger.info("Post published: %s", seo_result.cms_post_url)
 
@@ -132,8 +164,54 @@ class BlogWriterAgent(BaseAgent):
     async def run_cycle(self) -> None:
         """2-hour sweep: pick up any PENDING briefs the event handler missed."""
         logger.info("Sweeping DB for PENDING briefs…")
-        # TODO: Query PostgreSQL for briefs with status=PENDING
-        # pending_briefs = await load_pending_briefs()
-        # for brief in pending_briefs:
-        #     await self._process_brief(brief)
-        pass
+        async with async_session() as session:
+            from sqlalchemy import select
+            stmt = select(ContentBriefModel).where(ContentBriefModel.status == "pending")
+            result = await session.execute(stmt)
+            pending_models = result.scalars().all()
+            
+            for model in pending_models:
+                from ..shared.schemas.content_brief import ContentBrief
+                brief = ContentBrief(
+                    id=model.id,
+                    version=model.version,
+                    parent_brief_id=model.parent_brief_id,
+                    title=model.title,
+                    trend=model.trend_data,
+                    seo=model.seo_directives,
+                    outline=model.outline,
+                    status=model.status,
+                    priority=model.priority,
+                    created_at=model.created_at,
+                    updated_at=model.updated_at
+                )
+                await self._process_brief(brief)
+
+    async def _load_brief_from_db(self, brief_id: str) -> Optional[ContentBrief]:
+        """Load a single ContentBrief from PostgreSQL."""
+        from uuid import UUID
+        from sqlalchemy import select
+        from ..shared.schemas.content_brief import ContentBrief
+        
+        try:
+            async with async_session() as session:
+                stmt = select(ContentBriefModel).where(ContentBriefModel.id == UUID(brief_id))
+                result = await session.execute(stmt)
+                model = result.scalar_one_or_none()
+                if model:
+                    return ContentBrief(
+                        id=model.id,
+                        version=model.version,
+                        parent_brief_id=model.parent_brief_id,
+                        title=model.title,
+                        trend=model.trend_data,
+                        seo=model.seo_directives,
+                        outline=model.outline,
+                        status=model.status,
+                        priority=model.priority,
+                        created_at=model.created_at,
+                        updated_at=model.updated_at
+                    )
+        except Exception as e:
+            self._log.error(f"Failed to load brief {brief_id} from DB: {e}")
+        return None

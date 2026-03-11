@@ -10,8 +10,13 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Column, String, Float, Integer, DateTime, ForeignKey, JSON, Boolean
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from ...shared.schemas.content_brief import ContentBrief
+    from ...shared.schemas.seo_formatter_result import SEOFormatterResult
 
 
 class Base(DeclarativeBase):
@@ -48,6 +53,23 @@ class ContentBriefModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    @classmethod
+    def from_schema(cls, brief: "ContentBrief") -> "ContentBriefModel":
+        """Convert Pydantic ContentBrief to SQLAlchemy model."""
+        return cls(
+            id=brief.id,
+            version=brief.version,
+            parent_brief_id=brief.parent_brief_id,
+            topic=brief.trend.topic,
+            title=brief.title,
+            status=brief.status.value,
+            priority=brief.priority,
+            # Use JSON-safe dumps to avoid datetime serialization errors
+            trend_data=brief.trend.model_dump(mode="json"),
+            seo_directives=brief.seo.model_dump(mode="json"),
+            outline=[section.model_dump(mode="json") for section in brief.outline],
+        )
+
     # Relationships
     post = relationship("PostModel", back_populates="brief", uselist=False)
 
@@ -75,6 +97,33 @@ class PostModel(Base):
     
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    @classmethod
+    def from_schema(cls, result: "SEOFormatterResult") -> "PostModel":
+        """Convert Pydantic SEOFormatterResult to SQLAlchemy model."""
+        # Extract slug from URL or use result ID
+        slug_val = str(result.id)
+        if result.cms_post_url:
+            # cms_post_url can be HttpUrl or str depending on assignment time
+            if hasattr(result.cms_post_url, "path"):
+                path = result.cms_post_url.path or ""
+            else:
+                from urllib.parse import urlparse
+                path = urlparse(str(result.cms_post_url)).path or ""
+            slug_val = path.strip("/").split("/")[-1] or str(result.id)
+
+        return cls(
+            id=result.id,
+            brief_id=result.brief_id,
+            slug=slug_val,
+            cms_post_id=result.cms_post_id,
+            cms_post_url=str(result.cms_post_url) if result.cms_post_url else None,
+            html_content=result.html_content,
+            word_count=result.word_count,
+            overall_seo_score=result.overall_seo_score,
+            full_audit_results=result.model_dump(mode="json"),
+            published_at=result.published_at,
+        )
 
     # Relationships
     brief = relationship("ContentBriefModel", back_populates="post")

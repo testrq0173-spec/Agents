@@ -23,6 +23,8 @@ from ..shared.schemas.trend_data import TrendData
 from .tools.trend_scanner import scan_trends
 from .tools.deduplicator import deduplicate_trends
 from .tools.brief_generator import generate_brief
+from ..db.session import async_session
+from ..db.models.content_models import ContentBriefModel
 
 logger = logging.getLogger("openclaw.agents.content_strategist")
 
@@ -81,10 +83,11 @@ class ContentStrategistAgent(BaseAgent):
 
         # ── Step 4 & 5: Persist and emit ──────────────────────────────────
         for brief in briefs:
-            # TODO: Replace with real SQLAlchemy session
-            # async with async_session() as session:
-            #     session.add(ContentBriefModel.from_schema(brief))
-            #     await session.commit()
+            # Persist to PostgreSQL
+            async with async_session() as session:
+                session.add(ContentBriefModel.from_schema(brief))
+                await session.commit()
+                logger.info("Brief '%s' persisted to PostgreSQL.", brief.title)
 
             receivers = await self.emit(
                 "content_briefs_ready",

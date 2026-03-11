@@ -56,7 +56,7 @@ class RedisConfig(BaseModel):
     db:   int       = Field(default=0)
     password: Optional[str] = None
     ssl: bool       = Field(default=False)
-    socket_timeout: float   = Field(default=5.0)
+    socket_timeout: Optional[float] = Field(default=None)
     max_connections: int    = Field(default=10)
 
     @property
@@ -296,7 +296,7 @@ class BaseAgent(ABC):
         receivers: int = await self._redis.publish(channel, serialised)
 
         self._log.info(
-            "Event '%s' published to '%s' → %d receiver(s).",
+            "Event '%s' published to '%s' -> %d receiver(s).",
             event_name, channel, receivers
         )
         return receivers

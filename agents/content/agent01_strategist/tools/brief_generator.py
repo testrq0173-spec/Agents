@@ -46,7 +46,7 @@ The brief must include:
 JSON Schema requirement:
 {{
   "title": str,
-  "seo": {{ "slug": str, "focus_keyword": str, "meta_title": str, "meta_description": str, "secondary_keywords": list[str] }},
+  "seo": {{ "slug": str, "focus_keyword": str, "meta_title": str (max 65 chars), "meta_description": str (max 160 chars), "secondary_keywords": list[str] }},
   "outline": [ {{ "heading": str, "suggested_word_count": int, "key_points": list[str] }} ],
   "tone": "educational" | "conversational" | "authoritative" | "opinion_piece" | "how_to" | "listicle" | "case_study",
   "target_audience": "developers" | "business_owners" | "marketers" | "general_public" | "enterprise"
@@ -93,6 +93,14 @@ async def generate_brief(trend: "TrendData") -> "ContentBrief":
         from uuid import uuid4
         brief_dict["id"] = str(uuid4())
         brief_dict["trend"] = trend.model_dump()
+
+        # Ensure meta tags don't exceed limits
+        if "seo" in brief_dict:
+            seo = brief_dict["seo"]
+            if "meta_title" in seo:
+                seo["meta_title"] = seo["meta_title"][:65]
+            if "meta_description" in seo:
+                seo["meta_description"] = seo["meta_description"][:160]
         
         return ContentBrief(**brief_dict)
 
@@ -101,12 +109,13 @@ async def generate_brief(trend: "TrendData") -> "ContentBrief":
         # Fallback logic remains same as before...
         from ...shared.schemas.content_brief import ContentBrief, SEODirectives, ContentTone, TargetAudience
         return ContentBrief(
+            trend=trend,
             title=f"The Complete Guide to {trend.topic}",
             seo=SEODirectives(
                 slug=trend.topic.lower().replace(" ", "-"),
                 focus_keyword=trend.topic,
-                meta_title=f"{trend.topic} — OpenClaw Guide",
-                meta_description=f"Learn everything about {trend.topic}: best practices and expert tips.",
+                meta_title=f"{trend.topic} — OpenClaw Guide"[:65],
+                meta_description=f"Learn everything about {trend.topic}: best practices and expert tips."[:160],
                 secondary_keywords=["AI agents", "production ML", "autonomous systems"]
             ),
             outline=[],

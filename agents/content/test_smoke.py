@@ -26,7 +26,8 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 import redis.asyncio as aioredis
 import json
 
-# ── Now safe to import using full package paths ────────────────────────────
+# --- Now safe to import using full package paths ----------------------------
+from openclaw.agents.content.config.settings import settings
 from openclaw.agents.content.shared.schemas.trend_data import (
     TrendData, TrendSource, GoogleTrendsSignal,
 )
@@ -36,6 +37,8 @@ from openclaw.agents.content.agent01_strategist.tools.deduplicator import (
 from openclaw.agents.content.agent01_strategist.tools.brief_generator import (
     generate_brief,
 )
+from openclaw.agents.content.db.session import async_session
+from openclaw.agents.content.db.models.content_models import ContentBriefModel
 
 
 async def smoke_test() -> None:
@@ -44,7 +47,8 @@ async def smoke_test() -> None:
     print("=" * 60)
 
     # 0. Connect to Redis for live demonstration
-    r = aioredis.from_url("redis://localhost:6379", decode_responses=True)
+    redis_url = f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}"
+    r = aioredis.from_url(redis_url, decode_responses=True)
     
     # Send a Heartbeat so the Dashboard sees the agent
     await r.publish("openclaw:agents:heartbeats", json.dumps({
@@ -56,7 +60,7 @@ async def smoke_test() -> None:
 
     # 1. Create a fake TrendData
     trend = TrendData(
-        topic="AI Agents in Production 2025",
+        topic="How Shopify helping in a ECommorce Industry",
         primary_source=TrendSource.GOOGLE_TRENDS,
         trend_score=92.0,
         novelty_score=0.95,
@@ -87,12 +91,27 @@ async def smoke_test() -> None:
     print("  Slug       :", brief.seo.slug)
     print("  Priority   :", brief.priority)
 
+    # 3b. Persist to PostgreSQL
+    print("\n[DB] PERSISTING TO POSTGRESQL...")
+    try:
+        async with async_session() as session:
+            new_model = ContentBriefModel.from_schema(brief)
+            print(f"    MAPPING BRIEF ID: {new_model.id}")
+            session.add(new_model)
+            await session.commit()
+            print("    Brief saved successfully to PostgreSQL!")
+    except Exception as e:
+        print(f"    FAILED TO SAVE TO DB: {e}")
+
     # 4. PUBLISH TO REDIS (The Magic Link!)
-    print("\n🚀 PUBLISHING TO REDIS for Dashboard...")
+    print("\n[REDIS] PUBLISHING TO REDIS for Dashboard...")
     event_payload = {
         "agent_id": "strategist-01",
         "agent_name": "Strategist Agent",
-        "payload": brief.redis_payload()
+        "payload": {
+            **brief.redis_payload(),
+            "full_brief": brief.model_dump(mode="json")
+        }
     }
     await r.publish("openclaw:events:content_briefs_ready", json.dumps(event_payload))
     
@@ -105,6 +124,9 @@ async def smoke_test() -> None:
     }))
     
     await r.aclose()
+    
+    from openclaw.agents.content.db.session import engine
+    await engine.dispose()
 
     print("\n" + "=" * 60)
     print("  Smoke test PASSED & Event Published!")
